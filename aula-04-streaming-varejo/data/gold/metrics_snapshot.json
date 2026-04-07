@@ -1,0 +1,24 @@
+{
+  "generated_at": "2026-04-07T00:19:28.721313+00:00",
+  "total_orders": 130,
+  "payments_approved": 57,
+  "payments_denied": 19,
+  "approval_rate_percent": 75.0,
+  "approved_revenue": 19873.07,
+  "orders_per_channel": {
+    "app": 38,
+    "loja_fisica": 45,
+    "ecommerce": 47
+  },
+  "approved_revenue_per_store": {
+    "JP-CENTRO": 5064.05,
+    "JP-SUL": 4623.32,
+    "CG-01": 9246.480000000001,
+    "UNKNOWN": 939.22
+  },
+  "critical_inventory": [
+    "CG-01:SKU-ARROZ",
+    "JP-CENTRO:SKU-ARROZ",
+    "JP-CENTRO:SKU-CAFE"
+  ]
+}
