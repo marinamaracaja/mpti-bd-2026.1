@@ -1,0 +1,110 @@
+# Stack hands-on dos 4 paradigmas NoSQL
+# ─────────────────────────────────────────────────────────────
+# Uso por profile (recomendado em sala — sobe só o que precisa):
+#
+#   docker compose --profile kv up -d         # Redis
+#   docker compose --profile doc up -d        # MongoDB + UI
+#   docker compose --profile col up -d        # Cassandra
+#   docker compose --profile graph up -d      # Neo4j
+#   docker compose --profile all up -d        # tudo (precisa ~6 GB RAM)
+#
+# Sem profile: nada sobe (services exigem ativação por profile).
+
+services:
+
+  # ─── Documento ─────────────────────────────────────────────
+  mongo:
+    image: mongo:7.0
+    container_name: aula07-mongo
+    profiles: ["doc", "all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongo-express:
+    image: mongo-express:1.0
+    container_name: aula07-mongo-ui
+    profiles: ["doc", "all"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_MONGODB_PORT: "27017"
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin
+
+  # ─── Chave-valor ───────────────────────────────────────────
+  redis:
+    image: redis:7
+    container_name: aula07-redis
+    profiles: ["kv", "all"]
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: aula07-redis-ui
+    profiles: ["kv", "all"]
+    depends_on:
+      - redis
+    ports:
+      - "5540:5540"
+
+  # ─── Coluna (wide-column) ─────────────────────────────────
+  cassandra:
+    image: cassandra:5
+    container_name: aula07-cassandra
+    profiles: ["col", "all"]
+    ports:
+      - "9042:9042"
+    environment:
+      CASSANDRA_CLUSTER_NAME: aula07
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe cluster' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ─── Grafo ─────────────────────────────────────────────────
+  neo4j:
+    image: neo4j:5-community
+    container_name: aula07-neo4j
+    profiles: ["graph", "all"]
+    ports:
+      - "7474:7474"   # HTTP browser
+      - "7687:7687"   # Bolt protocol
+    environment:
+      NEO4J_AUTH: neo4j/aula07pass
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+      NEO4J_server_memory_pagecache_size: 256M
+      NEO4J_server_memory_heap_max__size: 512M
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+
+volumes:
+  mongo-data:
+  redis-data:
+  cassandra-data:
+  neo4j-data:
+  neo4j-logs:

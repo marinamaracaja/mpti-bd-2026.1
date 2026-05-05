@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "aula05-postgres",
+      "Group": "Servers",
+      "Host": "db",
+      "Port": 5432,
+      "MaintenanceDB": "aula05",
+      "Username": "aula05",
+      "SSLMode": "prefer",
+      "PassFile": "/pgpass"
+    }
+  }
+}

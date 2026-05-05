@@ -1,0 +1,97 @@
+services:
+  # Config server (replica set de 1 nó - somente para demo)
+  configsvr:
+    image: mongo:7.0
+    container_name: aula06-configsvr
+    hostname: configsvr
+    command: ["mongod", "--configsvr", "--replSet", "configrs", "--bind_ip_all", "--port", "27019"]
+    ports:
+      - "27119:27019"
+    volumes:
+      - configsvr-data:/data/db
+
+  # Shard A
+  shardA:
+    image: mongo:7.0
+    container_name: aula06-shardA
+    hostname: shardA
+    command: ["mongod", "--shardsvr", "--replSet", "shardA", "--bind_ip_all", "--port", "27018"]
+    ports:
+      - "27118:27018"
+    volumes:
+      - shardA-data:/data/db
+
+  # Shard B
+  shardB:
+    image: mongo:7.0
+    container_name: aula06-shardB
+    hostname: shardB
+    command: ["mongod", "--shardsvr", "--replSet", "shardB", "--bind_ip_all", "--port", "27018"]
+    ports:
+      - "27128:27018"
+    volumes:
+      - shardB-data:/data/db
+
+  # Inicializar replica sets
+  rs-init:
+    image: mongo:7.0
+    container_name: aula06-shard-rs-init
+    depends_on:
+      - configsvr
+      - shardA
+      - shardB
+    restart: "no"
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        sleep 10
+        mongosh --host configsvr:27019 --eval '
+          rs.initiate({ _id: "configrs", configsvr: true,
+            members: [{ _id: 0, host: "configsvr:27019" }] })'
+        mongosh --host shardA:27018 --eval '
+          rs.initiate({ _id: "shardA",
+            members: [{ _id: 0, host: "shardA:27018" }] })'
+        mongosh --host shardB:27018 --eval '
+          rs.initiate({ _id: "shardB",
+            members: [{ _id: 0, host: "shardB:27018" }] })'
+        echo "Replica sets inicializados."
+
+  # Router (mongos)
+  mongos:
+    image: mongo:7.0
+    container_name: aula06-mongos
+    hostname: mongos
+    command:
+      - "mongos"
+      - "--configdb"
+      - "configrs/configsvr:27019"
+      - "--bind_ip_all"
+      - "--port"
+      - "27020"
+    ports:
+      - "27020:27020"
+    depends_on:
+      rs-init:
+        condition: service_completed_successfully
+
+  shards-init:
+    image: mongo:7.0
+    container_name: aula06-shards-init
+    depends_on:
+      - mongos
+    restart: "no"
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        sleep 5
+        mongosh --host mongos:27020 --eval '
+          sh.addShard("shardA/shardA:27018");
+          sh.addShard("shardB/shardB:27018");
+          sh.status();
+        '
+        echo "Shards adicionados ao cluster."
+
+volumes:
+  configsvr-data:
+  shardA-data:
+  shardB-data:
