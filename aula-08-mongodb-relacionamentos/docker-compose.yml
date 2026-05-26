@@ -1,0 +1,45 @@
+# Aula 08 — MongoDB: Relacionamentos e Schema Design
+# ─────────────────────────────────────────────────────────────
+# Sobe MongoDB + Mongo Express (UI web) em profile "doc":
+#
+#   docker compose --profile doc up -d
+#
+# UI:  http://localhost:8081   (login admin / admin)
+# CLI: docker exec -it aula08-mongo mongosh
+#
+# Sem profile, nada sobe (o service exige ativação por profile),
+# o que mantém a porta 27017 livre quando você não está em aula.
+
+services:
+
+  mongo:
+    image: mongo:8.0
+    container_name: aula08-mongo
+    profiles: ["doc", "all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongo-express:
+    image: mongo-express:1.0
+    container_name: aula08-mongo-ui
+    profiles: ["doc", "all"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_MONGODB_PORT: "27017"
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin
+
+volumes:
+  mongo-data:
