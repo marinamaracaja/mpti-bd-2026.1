@@ -19,6 +19,9 @@ Observação: os estados de estante (`lido`, `lendo`, `quero_ler`) ficam embutid
 em `usuarios` como arrays de IDs de livros, porque são dados muito consultados em
 perfil e biblioteca pessoal.
 
+### Coleções no Mongo:
+![alt text](aula-08-mongodb-relacionamentos\images\image.png)
+
 #### Documento de exemplo por coleção
 
 `usuarios`:
@@ -110,68 +113,68 @@ perfil e biblioteca pessoal.
 
 #### Justificativas por relacionamento
 
-**(a) Usuario ↔ foto/perfil/configuracoes: embedding**
+**(a) Usuário ↔ foto/perfil/configurações: embedding**
 
-Perfil e configuracoes sao 1:1 e quase sempre lidos juntos na tela de perfil.
-Manter embutido evita join e simplifica updates atomicos do proprio usuario.
-O volume e pequeno e estavel, sem risco relevante para o limite de 16 MB.
+Perfil e configurações são 1:1 e quase sempre lidos juntos na tela de perfil.
+Manter embutido evita join e simplifica updates atômicos do próprio usuário.
+O volume é pequeno e estável, sem risco relevante para o limite de 16 MB.
 
-**(b) Resenha ↔ comentarios: embedding com controle de outlier**
+**(b) Resenha ↔ comentários: embedding com controle de outlier**
 
-Comentarios sao acessados junto da resenha na maior parte das leituras, entao
-embutir reduz roundtrips e simplifica ordenacao da conversa local.
+Comentários são acessados junto da resenha na maior parte das leituras, então
+embutir reduz roundtrips e simplifica a ordenação da conversa local.
 Como algumas resenhas podem explodir em volume, o design precisa de fallback:
-quando passar de um limiar, mover excedentes para colecao separada (Outlier Pattern).
+quando passar de um limiar, mover excedentes para coleção separada (Outlier Pattern).
 
-**(c) Livro ↔ resenhas: referencia**
+**(c) Livro ↔ resenhas: referência**
 
-Resenhas crescem sem limite pratico e podem levar um livro popular ao estouro de
-documento se forem embutidas no livro. O acesso mais comum e paginar resenhas por
-livro com filtros e ordenacao, o que funciona melhor com colecao propria e indices.
+Resenhas crescem sem limite prático e podem levar um livro popular ao estouro de
+documento se forem embutidas no livro. O acesso mais comum é paginar resenhas por
+livro com filtros e ordenação, o que funciona melhor com coleção própria e índices.
 
-**(d) Usuario ↔ livros nas estantes (N:N): referencia em arrays no usuario**
+**(d) Usuário ↔ livros nas estantes (N:N): referência em arrays no usuário**
 
-Cada usuario consulta frequentemente as proprias estantes, entao guardar arrays de
+Cada usuário consulta frequentemente as próprias estantes, então guardar arrays de
 `livro_id` no documento do usuario torna leitura de perfil muito barata.
-Como e N:N, o lado livro nao replica lista de usuarios para evitar crescimento
-descontrolado; consultas inversas usam a colecao `usuarios` com indice multikey.
+Como é N:N, o lado livro não replica lista de usuários para evitar crescimento
+descontrolado; consultas inversas usam a coleção `usuarios` com índice multikey.
 
-**(e) Usuario ↔ usuarios (seguir, N:N): colecao de ligacao (`seguidores`)**
+**(e) Usuário ↔ usuários (seguir, N:N): coleção de ligação (`seguidores`)**
 
-Follow e um grafo com outliers severos (contas com milhoes de seguidores), entao
-array dentro de usuario nao escala bem para escrita e tamanho de documento.
-A colecao de ligacao permite indices dedicados para "quem eu sigo" e "quem me segue",
-alem de evitar sincronizacao dupla de arrays nos dois lados.
+Follow é um grafo com outliers severos (contas com milhões de seguidores), então
+array dentro de usuário não escala bem para escrita e tamanho de documento.
+A coleção de ligação permite índices dedicados para "quem eu sigo" e "quem me segue",
+além de evitar sincronização dupla de arrays nos dois lados.
 
-### Parte 1.2 — Cardinalidade que muda a decisao (Livro ↔ resenhas)
+### Parte 1.2 — Cardinalidade que muda a decisão (Livro ↔ resenhas)
 
-Para livro comum (dezenas de resenhas), ainda e possivel embutir um subconjunto
-pequeno (por exemplo, ultimas 3) para leitura rapida da pagina do livro.
+Para livro comum (dezenas de resenhas), ainda é possível embutir um subconjunto
+pequeno (por exemplo, últimas 3) para leitura rápida da página do livro.
 
-Para best-seller (centenas de milhares), a estrategia obrigatoria e manter
-resenhas referenciadas em colecao propria, com paginação e indices por
+Para best-seller (centenas de milhares), a estratégia obrigatória é manter
+resenhas referenciadas em coleção própria, com paginação e índices por
 `livro_id` e `data`/`curtidas`.
 
-O pattern que resolve o caso de best-seller e **Subset Pattern** combinado com
-**Computed Pattern**: o livro guarda apenas um resumo (media, total e talvez
+O pattern que resolve o caso de best-seller é **Subset Pattern** combinado com
+**Computed Pattern**: o livro guarda apenas um resumo (média, total e talvez
 ultimas resenhas) enquanto o corpo completo fica fora, reduzindo payload e
 evitando crescimento sem controle no documento principal.
 
 ### Parte 1.3 — N:N (seguir): de que lado guardar?
 
-A escolha principal e **colecao de ligacao `seguidores`** com um documento por aresta.
-Para consulta "quem eu sigo", indice em `seguidor_id`; para "quem me segue", indice
+A escolha principal é **coleção de ligação `seguidores`** com um documento por aresta.
+Para consulta "quem eu sigo", índice em `seguidor_id`; para "quem me segue", índice
 em `seguido_id`, sem duplicar estado.
 
-Com usuarios outliers (milhoes de seguidores), arrays em `usuarios` crescem demais,
+Com usuários outliers (milhões de seguidores), arrays em `usuarios` crescem demais,
 pressionam o limite de 16 MB e tornam updates concorrentes mais caros.
-Guardar em ambos os lados so melhora leitura local, mas introduz custo operacional
-alto para manter consistencia bidirecional (escritas duplicadas, reconciliacao).
+Guardar em ambos os lados só melhora leitura local, mas introduz custo operacional
+alto para manter consistência bidirecional (escritas duplicadas, reconciliação).
 
-Se necessario, pode-se materializar contadores denormalizados (`seguindo_count`,
+Se necessário, pode-se materializar contadores denormalizados (`seguindo_count`,
 `seguidores_count`) no documento de usuario via Computed Pattern.
 
-### Script executavel da atividade
+### Script executável da atividade
 
 Arquivo: `scripts/08-atividade-schema-social-leitura.js`
 
@@ -181,7 +184,7 @@ Executar no **PowerShell**:
 Get-Content -Raw .\scripts\08-atividade-schema-social-leitura.js | docker exec -i aula08-mongo mongosh
 ```
 
-### Parte 2 — `$lookup` e agregacao
+### Parte 2 — `$lookup` e agregação
 
 Dataset usado: `livraria` (carregado por `scripts/01-seed-livraria.js`).
 
@@ -195,14 +198,14 @@ Executar:
 Get-Content -Raw .\scripts\09-atividade-parte2-21-enriquecer.js | docker exec -i aula08-mongo mongosh
 ```
 
-Insercoes realizadas (4 livros novos com FK manual para `editora` e `autor`):
+Inserções realizadas (4 livros novos com FK manual para `editora` e `autor`):
 
 - `MongoDB Performance Tuning` (Manning, 2 autores)
-- `Guia Pratico de Agregacoes` (Manning, 1 autor)
+- `Guia Prático de Agregações` (Manning, 1 autor)
 - `Modelagem NoSQL no Brasil` (Magica, 1 autor)
 - `Data Pipelines com MongoDB` (O'Reilly, 2 autores)
 
-Resultado obtido na execucao:
+Resultado obtido na execução:
 
 ```javascript
 Inseridos: 4 livros
@@ -210,17 +213,17 @@ Inseridos: 4 livros
 Livros inseridos (title, editora, qtd_autores):
 [
    { title: 'Data Pipelines com MongoDB', editora: "O'Reilly", qtd_autores: 2 },
-   { title: 'Guia Pratico de Agregacoes', editora: 'Manning', qtd_autores: 1 },
+   { title: 'Guia Prático de Agregações', editora: 'Manning', qtd_autores: 1 },
    { title: 'Modelagem NoSQL no Brasil', editora: 'Magica', qtd_autores: 1 },
    { title: 'MongoDB Performance Tuning', editora: 'Manning', qtd_autores: 2 }
 ]
 
-Check dos criterios:
+Check dos critérios:
 - Livro com 2+ autores: 2
 - Livros da editora Manning entre os novos: 2
 ```
 
-#### 2.2 — `$lookup` basico
+#### 2.2 — `$lookup` básico
 
 Script: `scripts/10-atividade-parte2-22-lookup.js`
 
@@ -263,7 +266,7 @@ Resultado obtido:
 [
    { title: 'Contos da Paraiba', editora: 'Magica', cidade: 'Joao Pessoa' },
    { title: 'Data Pipelines com MongoDB', editora: "O'Reilly", cidade: 'Sebastopol' },
-   { title: 'Guia Pratico de Agregacoes', editora: 'Manning', cidade: 'Shelter Island' },
+   { title: 'Guia Prático de Agregações', editora: 'Manning', cidade: 'Shelter Island' },
    { title: 'Modelagem NoSQL no Brasil', editora: 'Magica', cidade: 'Joao Pessoa' },
    { title: 'MongoDB Performance Tuning', editora: 'Manning', cidade: 'Shelter Island' },
    { title: 'MongoDB in Action', editora: 'Manning', cidade: 'Shelter Island' },
@@ -302,7 +305,7 @@ Resultado obtido:
 [
    { title: 'Contos da Paraiba', autores: [] },
    { title: 'Data Pipelines com MongoDB', autores: ['Shannon Bradshaw', 'Kristina Chodorow'] },
-   { title: 'Guia Pratico de Agregacoes', autores: ['Kristina Chodorow'] },
+   { title: 'Guia Prático de Agregações', autores: ['Kristina Chodorow'] },
    { title: 'Modelagem NoSQL no Brasil', autores: ['Kyle Banker'] },
    { title: 'MongoDB Performance Tuning', autores: ['Kyle Banker', 'Shannon Bradshaw'] },
    { title: 'MongoDB in Action', autores: ['Kyle Banker'] },
@@ -312,7 +315,7 @@ Resultado obtido:
 
 ### Parte 3 — Schema Design Patterns
 
-Script executavel da Parte 3: `scripts/11-atividade-parte3-patterns.js`
+Script executável da Parte 3: `scripts/11-atividade-parte3-patterns.js`
 
 Executar:
 
@@ -338,11 +341,11 @@ Documento JSON resultante (resenha enriquecida sem `$lookup` na leitura comum):
 }
 ```
 
-Justificativa: dupliquei `livro_title` e `usuario_nome` porque sao campos pequenos,
+Justificativa: dupliquei `livro_title` e `usuario_nome` porque são campos pequenos,
 de baixa volatilidade relativa e muito usados em feed/listagem de resenhas.
-Isso elimina `$lookup` nas leituras mais frequentes e reduz latencia.
-Nao duplicaria `bio` do usuario (nem `sinopse` completa do livro), pois mudam mais,
-podem crescer e gerariam alto custo de propagacao.
+Isso elimina `$lookup` nas leituras mais frequentes e reduz latência.
+Não duplicaria `bio` do usuário (nem `sinopse` completa do livro), pois mudam mais,
+podem crescer e gerariam alto custo de propagação.
 
 #### 3.2 — Subset
 
@@ -379,9 +382,9 @@ Documento JSON resultante (`livro` com as 3 resenhas mais recentes + contador):
 }
 ```
 
-Como a tela "ver todas as resenhas" funciona: a pagina do livro usa
-`subset_resenhas_recentes` para renderizacao imediata. Ao clicar em "ver todas",
-o frontend pagina na colecao `resenhas` por `livro_id`, sem carregar tudo no documento do livro.
+Como a tela "ver todas as resenhas" funciona: a página do livro usa
+`subset_resenhas_recentes` para renderização imediata. Ao clicar em "ver todas",
+o frontend pagina na coleção `resenhas` por `livro_id`, sem carregar tudo no documento do livro.
 
 #### 3.3 — Computed
 
@@ -413,13 +416,13 @@ db.livros.updateOne(
 );
 ```
 
-Justificativa: o custo de agregacao sai da leitura e vai para escrita, o que
-melhora listagens e telas de detalhe muito acessadas. Em seguida, a media e
+Justificativa: o custo de agregação sai da leitura e vai para escrita, o que
+melhora listagens e telas de detalhe muito acessadas. Em seguida, a média é
 recalculada e persistida no documento para consulta direta.
 
 #### 3.4 — Escolha livre: Outlier
 
-Documento JSON resultante (usuario outlier):
+Documento JSON resultante (usuário outlier):
 
 ```json
 {
@@ -435,7 +438,7 @@ Documento JSON resultante (usuario outlier):
 }
 ```
 
-Documentos JSON resultantes em colecao auxiliar de outliers:
+Documentos JSON resultantes em coleção auxiliar de outliers:
 
 ```json
 [
@@ -454,7 +457,7 @@ Documentos JSON resultantes em colecao auxiliar de outliers:
 ]
 ```
 
-Justificativa: perfis com milhoes de seguidores sao excecao, e esse crescimento
-assimetrico pode estourar tamanho/utilidade de arrays no documento principal.
-Com Outlier Pattern, mantemos uma amostra util no documento do usuario e empurramos
-o excedente para colecao dedicada, preservando performance para a maioria dos casos.
+Justificativa: perfis com milhões de seguidores são exceção, e esse crescimento
+assimétrico pode estourar tamanho/utilidade de arrays no documento principal.
+Com Outlier Pattern, mantemos uma amostra útil no documento do usuário e empurramos
+o excedente para coleção dedicada, preservando performance para a maioria dos casos.
