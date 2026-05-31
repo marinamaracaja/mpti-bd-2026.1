@@ -3,8 +3,8 @@
 
 ## Atividade MongoDB — Relacionamentos e Schema Design
 
-Esta seção entrega a **Parte 1** da atividade pedida (modelagem da rede social
-de leitura), com decisões de schema guiadas por padrão de acesso.
+Este arquivo traz as respostas da atividade sobre modelagem de dados no MongoDB,
+usando o cenário de uma rede social de leitura.
 
 ### Parte 1.1 — Decisões embed x referência
 
@@ -15,12 +15,12 @@ de leitura), com decisões de schema guiadas por padrão de acesso.
 - `resenhas`
 - `seguidores` (coleção de ligação para follow)
 
-Observação: os estados de estante (`lido`, `lendo`, `quero_ler`) ficam embutidos
-em `usuarios` como arrays de IDs de livros, porque são dados muito consultados em
-perfil e biblioteca pessoal.
+Observação: os estados de estante (`lido`, `lendo`, `quero_ler`) ficam dentro de
+`usuarios` como listas de IDs de livros, porque são dados usados com frequência no
+perfil e na biblioteca da pessoa.
 
 ### Coleções no Mongo:
-![alt text](aula-08-mongodb-relacionamentos\images\image.png)
+![alt text](images/image.png)
 
 #### Documento de exemplo por coleção
 
@@ -115,64 +115,56 @@ perfil e biblioteca pessoal.
 
 **(a) Usuário ↔ foto/perfil/configurações: embedding**
 
-Perfil e configurações são 1:1 e quase sempre lidos juntos na tela de perfil.
-Manter embutido evita join e simplifica updates atômicos do próprio usuário.
-O volume é pequeno e estável, sem risco relevante para o limite de 16 MB.
+Perfil e configurações são dados 1:1 e quase sempre aparecem juntos.
+Por isso, faz sentido guardar tudo no mesmo documento do usuário.
+Também é um conjunto pequeno, então não há risco de crescer demais.
 
 **(b) Resenha ↔ comentários: embedding com controle de outlier**
 
-Comentários são acessados junto da resenha na maior parte das leituras, então
-embutir reduz roundtrips e simplifica a ordenação da conversa local.
-Como algumas resenhas podem explodir em volume, o design precisa de fallback:
-quando passar de um limiar, mover excedentes para coleção separada (Outlier Pattern).
+Comentários normalmente são lidos junto com a resenha.
+Por isso, deixar os comentários dentro da resenha facilita a leitura da tela.
+Se uma resenha receber comentários demais, o excedente pode ir para uma coleção separada.
 
 **(c) Livro ↔ resenhas: referência**
 
-Resenhas crescem sem limite prático e podem levar um livro popular ao estouro de
-documento se forem embutidas no livro. O acesso mais comum é paginar resenhas por
-livro com filtros e ordenação, o que funciona melhor com coleção própria e índices.
+Resenhas podem crescer muito, principalmente em livros famosos.
+Se tudo ficasse dentro de `livros`, o documento poderia ficar grande demais.
+Separar em `resenhas` facilita paginação, filtro e ordenação.
 
 **(d) Usuário ↔ livros nas estantes (N:N): referência em arrays no usuário**
 
-Cada usuário consulta frequentemente as próprias estantes, então guardar arrays de
-`livro_id` no documento do usuario torna leitura de perfil muito barata.
-Como é N:N, o lado livro não replica lista de usuários para evitar crescimento
-descontrolado; consultas inversas usam a coleção `usuarios` com índice multikey.
+Cada pessoa costuma consultar mais a própria estante.
+Por isso, guardar listas de `livro_id` no documento de `usuarios` deixa essa leitura rápida.
+No lado de `livros`, não guardamos lista de usuários para evitar crescimento excessivo.
 
 **(e) Usuário ↔ usuários (seguir, N:N): coleção de ligação (`seguidores`)**
 
-Follow é um grafo com outliers severos (contas com milhões de seguidores), então
-array dentro de usuário não escala bem para escrita e tamanho de documento.
-A coleção de ligação permite índices dedicados para "quem eu sigo" e "quem me segue",
-além de evitar sincronização dupla de arrays nos dois lados.
+Relação de seguir pode crescer muito em alguns perfis.
+Se isso ficasse em listas dentro de `usuarios`, o documento poderia ficar pesado.
+Com `seguidores`, fica fácil consultar "quem eu sigo" e "quem me segue" sem duplicar dados.
 
 ### Parte 1.2 — Cardinalidade que muda a decisão (Livro ↔ resenhas)
 
-Para livro comum (dezenas de resenhas), ainda é possível embutir um subconjunto
-pequeno (por exemplo, últimas 3) para leitura rápida da página do livro.
+Para um livro comum (com poucas resenhas), dá para guardar um pequeno resumo,
+como as últimas 3 resenhas, para mostrar rápido na tela.
 
-Para best-seller (centenas de milhares), a estratégia obrigatória é manter
-resenhas referenciadas em coleção própria, com paginação e índices por
-`livro_id` e `data`/`curtidas`.
+Para best-seller (com muitas resenhas), é melhor manter tudo em `resenhas`
+e buscar por páginas.
 
-O pattern que resolve o caso de best-seller é **Subset Pattern** combinado com
-**Computed Pattern**: o livro guarda apenas um resumo (média, total e talvez
-ultimas resenhas) enquanto o corpo completo fica fora, reduzindo payload e
-evitando crescimento sem controle no documento principal.
+Nesse caso, a ideia é usar um resumo no documento do livro (média, total e últimas)
+e deixar o restante na coleção de resenhas.
+Assim, a leitura principal fica leve e o documento não cresce sem controle.
 
 ### Parte 1.3 — N:N (seguir): de que lado guardar?
 
-A escolha principal é **coleção de ligação `seguidores`** com um documento por aresta.
-Para consulta "quem eu sigo", índice em `seguidor_id`; para "quem me segue", índice
-em `seguido_id`, sem duplicar estado.
+A escolha é usar a coleção `seguidores`, com um documento para cada relação.
+Isso facilita as duas consultas: "quem eu sigo" e "quem me segue".
 
-Com usuários outliers (milhões de seguidores), arrays em `usuarios` crescem demais,
-pressionam o limite de 16 MB e tornam updates concorrentes mais caros.
-Guardar em ambos os lados só melhora leitura local, mas introduz custo operacional
-alto para manter consistência bidirecional (escritas duplicadas, reconciliação).
+Em contas muito grandes, listas dentro de `usuarios` podem crescer demais.
+Também fica mais difícil manter os dois lados sincronizados sem erro.
 
-Se necessário, pode-se materializar contadores denormalizados (`seguindo_count`,
-`seguidores_count`) no documento de usuario via Computed Pattern.
+Se necessário, dá para guardar contadores (`seguindo_count`, `seguidores_count`)
+no próprio documento do usuário.
 
 ### Script executável da atividade
 
@@ -186,7 +178,7 @@ Get-Content -Raw .\scripts\08-atividade-schema-social-leitura.js | docker exec -
 
 ### Parte 2 — `$lookup` e agregação
 
-Dataset usado: `livraria` (carregado por `scripts/01-seed-livraria.js`).
+Base usada: `livraria` (carregada por `scripts/01-seed-livraria.js`).
 
 #### 2.1 — Enriquecer o dataset
 
@@ -198,7 +190,7 @@ Executar:
 Get-Content -Raw .\scripts\09-atividade-parte2-21-enriquecer.js | docker exec -i aula08-mongo mongosh
 ```
 
-Inserções realizadas (4 livros novos com FK manual para `editora` e `autor`):
+Foram inseridos 4 livros novos, usando IDs de `editora` e `autor`:
 
 - `MongoDB Performance Tuning` (Manning, 2 autores)
 - `Guia Prático de Agregações` (Manning, 1 autor)
@@ -233,7 +225,7 @@ Executar:
 Get-Content -Raw .\scripts\10-atividade-parte2-22-lookup.js | docker exec -i aula08-mongo mongosh
 ```
 
-##### 2.2(a) Livros com nome/cidade da editora
+##### 2.2(a) Livros com nome e cidade da editora
 
 Pipeline completo:
 
@@ -341,11 +333,10 @@ Documento JSON resultante (resenha enriquecida sem `$lookup` na leitura comum):
 }
 ```
 
-Justificativa: dupliquei `livro_title` e `usuario_nome` porque são campos pequenos,
-de baixa volatilidade relativa e muito usados em feed/listagem de resenhas.
-Isso elimina `$lookup` nas leituras mais frequentes e reduz latência.
-Não duplicaria `bio` do usuário (nem `sinopse` completa do livro), pois mudam mais,
-podem crescer e gerariam alto custo de propagação.
+Justificativa: dupliquei `livro_title` e `usuario_nome` porque são campos pequenos
+e usados com frequência nas telas.
+Isso evita busca extra na maior parte das leituras.
+Não duplicaria `bio` do usuário (nem a `sinopse` completa), pois podem mudar mais.
 
 #### 3.2 — Subset
 
@@ -382,9 +373,9 @@ Documento JSON resultante (`livro` com as 3 resenhas mais recentes + contador):
 }
 ```
 
-Como a tela "ver todas as resenhas" funciona: a página do livro usa
-`subset_resenhas_recentes` para renderização imediata. Ao clicar em "ver todas",
-o frontend pagina na coleção `resenhas` por `livro_id`, sem carregar tudo no documento do livro.
+Como funciona "ver todas as resenhas": a página mostra primeiro
+`subset_resenhas_recentes` para abrir rápido.
+Ao clicar em "ver todas", o sistema busca em `resenhas` por `livro_id` com paginação.
 
 #### 3.3 — Computed
 
@@ -416,9 +407,9 @@ db.livros.updateOne(
 );
 ```
 
-Justificativa: o custo de agregação sai da leitura e vai para escrita, o que
-melhora listagens e telas de detalhe muito acessadas. Em seguida, a média é
-recalculada e persistida no documento para consulta direta.
+Justificativa: em vez de calcular tudo toda vez que alguém abre a tela,
+os números são atualizados quando entra uma nova resenha.
+Assim, as leituras ficam mais rápidas.
 
 #### 3.4 — Escolha livre: Outlier
 
@@ -457,7 +448,6 @@ Documentos JSON resultantes em coleção auxiliar de outliers:
 ]
 ```
 
-Justificativa: perfis com milhões de seguidores são exceção, e esse crescimento
-assimétrico pode estourar tamanho/utilidade de arrays no documento principal.
-Com Outlier Pattern, mantemos uma amostra útil no documento do usuário e empurramos
-o excedente para coleção dedicada, preservando performance para a maioria dos casos.
+Justificativa: perfis com milhões de seguidores são casos fora da curva.
+Para esses casos, guardamos só uma parte no documento principal e o resto em outra coleção.
+Isso mantém o sistema mais estável para todos os usuários.
