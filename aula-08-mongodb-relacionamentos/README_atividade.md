@@ -100,6 +100,9 @@ perfil e na biblioteca da pessoa.
 }
 ```
 
+### Exemplo no Mongo:
+![alt text](images/image2.png)
+
 `seguidores`:
 
 ```json
